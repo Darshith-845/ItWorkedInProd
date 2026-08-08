@@ -183,19 +183,26 @@ export default function App() {
     // Run the actual API trigger or demo resolver
     try {
       let result;
+      let responseOk = true;
       if (mode === 'real') {
         const response = await fetch('http://localhost:4317/reproduce', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scenario_id: analysisResult.id })
         });
-        result = await response.json();
+        responseOk = response.ok;
+        try {
+          result = await response.json();
+        } catch {
+          result = { error: `Local Agent returned HTTP ${response.status} without a JSON response body.` };
+        }
       } else {
         // Mock API response delay for demo mode
         await new Promise(resolve => setTimeout(resolve, 13000));
         // Construct mock result from metadata JSON
         result = {
           success: true,
+          trigger_success: true,
           trigger_output: JSON.stringify(analysisResult.production_error, null, 2),
           container_logs: `checkout-api-1  | [INFO] Server started on port 3000
 checkout-api-1  | [ERROR] ${analysisResult.production_error.endpoint} failed
@@ -211,30 +218,64 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
       clearTimeout(timer4);
       clearTimeout(timer5);
 
+      const asText = (value) => {
+        if (typeof value === 'string') return value;
+        if (value == null) return '';
+        return JSON.stringify(value);
+      };
+      const triggerOutput = asText(result?.trigger_output || result?.stdout);
+      const containerLogs = asText(result?.container_logs || result?.stderr);
+      const agentError = asText(result?.error || result?.message || result?.details);
+      const observedOutput = [triggerOutput, containerLogs].join('\n');
+      const expected = analysisResult.reproduction_spec.expected_result || {};
+      const expectedStatus = expected.http_status != null && new RegExp(`HTTP (?:Status|status)[:\\s]+${expected.http_status}|"http_status"\\s*:\\s*${expected.http_status}`).test(observedOutput);
+      const expectedCode = !expected.error_code || observedOutput.includes(expected.error_code);
+      const expectedMessage = !expected.error_message_contains || observedOutput.includes(expected.error_message_contains);
+
+      let outcome;
+      if (!responseOk || result?.success !== true) {
+        outcome = {
+          status: 'INFRASTRUCTURE_FAILURE',
+          message: agentError || `Local Agent returned HTTP ${responseOk ? 'an invalid success payload' : 'an error response'}.`
+        };
+      } else if (result.trigger_success !== true || !expectedStatus || !expectedCode || !expectedMessage) {
+        outcome = {
+          status: 'REPRODUCTION_MISMATCH',
+          message: 'The sandbox ran, but its observed result did not match the expected production failure signature.'
+        };
+      } else {
+        outcome = { status: 'REPRODUCTION_VERIFIED' };
+      }
+
+      setReproduceResponse({ ...result, container_logs: containerLogs, trigger_output: triggerOutput });
       setSimActiveStep(6);
       addLog("Trigger completed. Capturing execution reports...");
       addLog("Logs collected. Cleaning up container environments...");
       
       // Append actual execution output to logs window
       addLog("\n=== DOCKER LOGS CAPTURED ===");
-      result.container_logs.split('\n').forEach(line => {
+      (containerLogs || triggerOutput || agentError || 'No execution output returned by Local Agent.').split('\n').forEach(line => {
         if (line) logLines.push(line);
       });
       setTerminalLogs([...logLines]);
 
-      setReproduceResponse(result);
       setIsSimulating(false);
 
-      // Transition to results screen
-      setTimeout(() => {
-        setStep(4);
-      }, 1000);
+      if (outcome.status === 'REPRODUCTION_VERIFIED') {
+        // HTTP 500 is expected here when its status and failure signature match production.
+        setTimeout(() => {
+          setStep(4);
+        }, 1000);
+      } else {
+        addLog(`\n[${outcome.status}] ${outcome.message}`);
+        alert(`${outcome.status}: ${outcome.message}`);
+      }
 
     } catch (err) {
       console.error('Reproduction run failed:', err);
       addLog(`\n[FATAL ERROR] Reproduction failed: ${err.message}`);
       setIsSimulating(false);
-      alert('Reproduction run failed. Check agent logs.');
+      alert(`INFRASTRUCTURE_FAILURE: ${err.message}`);
     }
   };
 
