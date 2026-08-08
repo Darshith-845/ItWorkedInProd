@@ -1,0 +1,18 @@
+# Missing Configuration Scenario
+#
+# Reproduces: DATABASE_URL environment variable is not set.
+# The checkout-api starts without DATABASE_URL.
+# When POST /checkout is called, it fails with ERR_CONFIG_MISSING.
+#
+# NOTE: DATABASE_URL is intentionally NOT set here.
+
+services:
+  checkout-api:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "3050:3000"
+    # DATABASE_URL is intentionally omitted to reproduce the production failure
+    environment:
+      NODE_ENV: production

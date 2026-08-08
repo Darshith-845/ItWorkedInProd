@@ -1,0 +1,61 @@
+{
+  "id": "service-down",
+  "name": "Service Dependency Failure",
+  "description": "Redis becomes unavailable. The checkout API starts and serves health checks, but fails with ECONNREFUSED when attempting to fetch cart data from Redis.",
+  "icon": "🔌",
+  "severity": "critical",
+  "category": "dependency",
+  "error_type": "service_dependency_failure",
+  "production_error": {
+    "endpoint": "POST /checkout",
+    "http_status": 500,
+    "error_code": "ECONNREFUSED",
+    "error_message": "Redis connection failed: connect ECONNREFUSED 10.0.1.5:6379",
+    "service": "checkout-api",
+    "timestamp": "2026-08-07T16:45:33.891Z",
+    "stack_trace": "Error: connect ECONNREFUSED 10.0.1.5:6379\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1595:16)\n    at Redis._connect (/app/node_modules/ioredis/built/Redis.js:206:14)",
+    "request": {
+      "method": "POST",
+      "path": "/checkout",
+      "body": {
+        "session_id": "sess_abc123"
+      }
+    },
+    "dependency": {
+      "service": "redis",
+      "host": "10.0.1.5",
+      "port": 6379,
+      "status": "unavailable"
+    }
+  },
+  "reproduction_spec": {
+    "services": {
+      "checkout-api": {
+        "image": "service-down-checkout-api",
+        "port": 3000,
+        "env_vars": {
+          "NODE_ENV": "production",
+          "REDIS_HOST": "redis",
+          "REDIS_PORT": "6379"
+        }
+      }
+    },
+    "missing_services": ["redis"],
+    "trigger": {
+      "method": "POST",
+      "path": "/checkout",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"session_id": "sess_abc123"}
+    },
+    "expected_result": {
+      "http_status": 500,
+      "error_code": "ECONNREFUSED",
+      "error_message_contains": "Redis connection failed"
+    }
+  },
+  "root_cause": {
+    "summary": "The Redis service that the checkout API depends on became unavailable. All requests requiring cart data from Redis fail with ECONNREFUSED.",
+    "details": "The checkout-api service is configured to connect to Redis at redis:6379 for session and cart data storage. The Redis instance is not running or not reachable, causing all connection attempts to fail immediately with ECONNREFUSED. This is a service topology issue — the application has a hard dependency on Redis availability.",
+    "suggested_fix": "1. Verify the Redis service is running: docker compose ps redis\n2. Check Redis health: redis-cli -h redis ping\n3. If Redis crashed, restart it and investigate the crash cause.\n4. Consider adding a circuit breaker or graceful degradation for Redis unavailability."
+  }
+}

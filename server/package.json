@@ -1,0 +1,15 @@
+{
+  "name": "it-worked-in-prod-backend",
+  "version": "1.0.0",
+  "description": "Express.js backend for IT WORKED IN PROD. Handles AI analysis and scenario metadata delivery.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1",
+    "@google/generative-ai": "^0.1.1"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "id": "missing-config",
+  "name": "Missing Environment Variable",
+  "description": "DATABASE_URL is not set in the production environment. The checkout API starts successfully but fails on the first database-dependent request.",
+  "icon": "⚙️",
+  "severity": "critical",
+  "category": "configuration",
+  "error_type": "missing_env_var",
+  "production_error": {
+    "endpoint": "POST /checkout",
+    "http_status": 500,
+    "error_code": "ERR_CONFIG_MISSING",
+    "error_message": "Database connection failed: DATABASE_URL is not defined",
+    "service": "checkout-api",
+    "timestamp": "2026-08-07T14:32:18.442Z",
+    "stack_trace": "Error: DATABASE_URL is not defined\n    at /app/server.js:15:19\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at next (/app/node_modules/express/lib/router/route.js:144:13)",
+    "request": {
+      "method": "POST",
+      "path": "/checkout",
+      "body": {
+        "items": [{"id": "prod_001", "qty": 1}]
+      }
+    }
+  },
+  "reproduction_spec": {
+    "services": {
+      "checkout-api": {
+        "image": "missing-config-checkout-api",
+        "port": 3000,
+        "env_vars": {
+          "NODE_ENV": "production"
+        },
+        "missing_env_vars": ["DATABASE_URL"]
+      }
+    },
+    "trigger": {
+      "method": "POST",
+      "path": "/checkout",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"items": [{"id": "prod_001", "qty": 1}]}
+    },
+    "expected_result": {
+      "http_status": 500,
+      "error_code": "ERR_CONFIG_MISSING",
+      "error_message_contains": "DATABASE_URL is not defined"
+    }
+  },
+  "root_cause": {
+    "summary": "The DATABASE_URL environment variable was not set in the production deployment configuration.",
+    "details": "The checkout-api service starts without validating that required environment variables are present. When a checkout request arrives, the application attempts to read DATABASE_URL from process.env, finds it undefined, and throws an error. This is a configuration management issue — the variable was likely omitted during the last deployment or environment update.",
+    "suggested_fix": "Add DATABASE_URL to the deployment environment configuration. Consider adding startup validation to fail fast when required environment variables are missing."
+  }
+}

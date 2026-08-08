@@ -1,0 +1,23 @@
+# Zerops configuration file
+# See https://docs.zerops.io/ for reference
+
+zerops:
+  # The service name defined in Zerops dashboard (must match your service name, e.g., 'app')
+  - setup: app
+    build:
+      base: nodejs@20
+      buildCommands:
+        - npm run install:server
+        - npm run install:client
+        - npm run build
+      deployFiles:
+        - server/
+        - client/dist/
+        - scenarios/
+        - package.json
+    run:
+      base: nodejs@20
+      ports:
+        - port: 3001
+          httpSupport: true
+      start: npm start

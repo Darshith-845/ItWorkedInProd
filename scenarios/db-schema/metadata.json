@@ -1,0 +1,65 @@
+{
+  "id": "db-schema",
+  "name": "Database Schema Mismatch",
+  "description": "Application expects schema v17 (with subscription column) but the database has schema v16 (without it). Checkout queries fail with 'column subscription does not exist'.",
+  "icon": "🗄️",
+  "severity": "critical",
+  "category": "database",
+  "error_type": "db_schema_mismatch",
+  "production_error": {
+    "endpoint": "POST /checkout",
+    "http_status": 500,
+    "error_code": "42703",
+    "error_message": "column \"subscription\" does not exist",
+    "service": "checkout-api",
+    "timestamp": "2026-08-07T15:18:42.117Z",
+    "stack_trace": "error: column \"subscription\" does not exist\n    at /app/node_modules/pg/lib/client.js:526:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at /app/server.js:28:22",
+    "request": {
+      "method": "POST",
+      "path": "/checkout",
+      "body": {
+        "user_id": "usr_001"
+      }
+    },
+    "environment": {
+      "schema_version": "v17 expected",
+      "actual_schema": "v16",
+      "database": "postgres"
+    }
+  },
+  "reproduction_spec": {
+    "services": {
+      "db": {
+        "image": "postgres:16-alpine",
+        "port": 5432,
+        "schema_version": "v16",
+        "note": "Initialized with schema v16 (missing subscription column)"
+      },
+      "checkout-api": {
+        "image": "db-schema-checkout-api",
+        "port": 3000,
+        "env_vars": {
+          "NODE_ENV": "production",
+          "DATABASE_URL": "postgres://appuser:apppass@db:5432/appdb"
+        },
+        "expects_schema": "v17"
+      }
+    },
+    "trigger": {
+      "method": "POST",
+      "path": "/checkout",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"user_id": "usr_001"}
+    },
+    "expected_result": {
+      "http_status": 500,
+      "error_code": "42703",
+      "error_message_contains": "column \"subscription\" does not exist"
+    }
+  },
+  "root_cause": {
+    "summary": "Production expects database schema v17 which includes the 'subscription' column on the users table. The current database is running schema v16 which does not have this column.",
+    "details": "Migration 17 added the 'subscription' column to the users table (ALTER TABLE users ADD COLUMN subscription VARCHAR(50)). This migration was not applied before deploying the application version that queries this column. The checkout endpoint executes SELECT email, name, subscription FROM users, which fails because the column does not exist in the current schema.",
+    "suggested_fix": "Run migration 17 before deploying:\n\nALTER TABLE users ADD COLUMN subscription VARCHAR(50) DEFAULT 'active';\n\nAlternatively, roll back the application to the version compatible with schema v16."
+  }
+}

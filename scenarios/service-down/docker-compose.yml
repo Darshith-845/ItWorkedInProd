@@ -1,0 +1,21 @@
+# Service Dependency Failure Scenario
+#
+# Reproduces: Redis is unavailable, causing ECONNREFUSED.
+# The checkout-api starts and accepts requests, but when it tries
+# to connect to Redis to fetch cart data, the connection is refused.
+#
+# NOTE: Redis service is intentionally NOT included.
+
+services:
+  checkout-api:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "3052:3000"
+    environment:
+      NODE_ENV: production
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    # NOTE: No Redis service defined — this is intentional.
+    # The app will try to connect to 'redis:6379' and get ECONNREFUSED.
