@@ -121,6 +121,31 @@ export default function App() {
 
   // Run the reproduction workflow
   const runReproduction = async () => {
+    const tracePrefix = '[reproduction trace]';
+    let currentOperation = 'initializing reproduction workflow';
+    const traceFetch = async (url, options) => {
+      console.log(`${tracePrefix} fetch URL`, { url, options });
+      currentOperation = `fetch(${url})`;
+      try {
+        const response = await fetch(url, options);
+        console.log(`${tracePrefix} fetch response`, {
+          url,
+          status: response.status,
+          ok: response.ok,
+          statusText: response.statusText
+        });
+        return response;
+      } catch (error) {
+        console.error(`${tracePrefix} fetch exception`, {
+          url,
+          error,
+          message: error?.message,
+          stack: error?.stack
+        });
+        throw error;
+      }
+    };
+
     setStep(3); // Move to Reproduce
     setIsSimulating(true);
     setSimActiveStep(0);
@@ -185,15 +210,28 @@ export default function App() {
       let result;
       let responseOk = true;
       if (mode === 'real') {
-        const response = await fetch('http://localhost:4317/reproduce', {
+        const reproduceUrl = 'http://localhost:4317/reproduce';
+        const response = await traceFetch(reproduceUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scenario_id: analysisResult.id })
         });
         responseOk = response.ok;
         try {
+          currentOperation = 'parsing /reproduce JSON response';
           result = await response.json();
-        } catch {
+          console.log(`${tracePrefix} initial /reproduce response`, {
+            url: reproduceUrl,
+            status: response.status,
+            ok: response.ok
+          });
+          console.log(`${tracePrefix} parsed result`, result);
+        } catch (parseError) {
+          console.error(`${tracePrefix} /reproduce JSON parse exception`, {
+            error: parseError,
+            message: parseError?.message,
+            stack: parseError?.stack
+          });
           result = { error: `Local Agent returned HTTP ${response.status} without a JSON response body.` };
         }
       } else {
@@ -218,6 +256,7 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
       clearTimeout(timer4);
       clearTimeout(timer5);
 
+      currentOperation = 'extracting observed output and expected result metadata';
       const asText = (value) => {
         if (typeof value === 'string') return value;
         if (value == null) return '';
@@ -228,6 +267,17 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
       const agentError = asText(result?.error || result?.message || result?.details);
       const observedOutput = [triggerOutput, containerLogs].join('\n');
       const expected = analysisResult.reproduction_spec.expected_result || {};
+      console.log(`${tracePrefix} expected_result`, expected);
+      console.log(`${tracePrefix} observed result`, {
+        responseOk,
+        success: result?.success,
+        trigger_success: result?.trigger_success,
+        trigger_output: triggerOutput,
+        container_logs: containerLogs,
+        agent_error: agentError
+      });
+
+      currentOperation = 'matching expected failure signature';
       const expectedStatus = expected.http_status != null && new RegExp(`HTTP (?:Status|status)[:\\s]+${expected.http_status}|"http_status"\\s*:\\s*${expected.http_status}`).test(observedOutput);
       const expectedCode = !expected.error_code || observedOutput.includes(expected.error_code);
       const expectedMessage = !expected.error_message_contains || observedOutput.includes(expected.error_message_contains);
@@ -246,7 +296,15 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
       } else {
         outcome = { status: 'REPRODUCTION_VERIFIED' };
       }
+      console.log(`${tracePrefix} classification`, {
+        outcome,
+        responseOk,
+        expectedStatus,
+        expectedCode,
+        expectedMessage
+      });
 
+      currentOperation = 'committing reproduction result to React state';
       setReproduceResponse({ ...result, container_logs: containerLogs, trigger_output: triggerOutput });
       setSimActiveStep(6);
       addLog("Trigger completed. Capturing execution reports...");
@@ -272,6 +330,12 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
       }
 
     } catch (err) {
+      console.error(`${tracePrefix} reproduction exception before catch`, {
+        currentOperation,
+        error: err,
+        message: err?.message,
+        stack: err?.stack
+      });
       console.error('Reproduction run failed:', err);
       addLog(`\n[FATAL ERROR] Reproduction failed: ${err.message}`);
       setIsSimulating(false);
