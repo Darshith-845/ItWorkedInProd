@@ -1,4 +1,4 @@
-const { GoogleGenAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 const path = require('path');
 
@@ -75,7 +75,6 @@ async function analyzeError(logText) {
 
   try {
     const genAI = new GoogleGenAI({ apiKey });
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
     const prompt = `
 You are the AI engine of "IT WORKED IN PROD", a production failure reproduction assistant.
@@ -96,8 +95,12 @@ ${logText}
 """
     `;
 
-    const result = await model.generateContent(prompt);
-    const textResult = result.response.text().trim();
+    const result = await genAI.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: prompt
+    });
+
+    const textResult = result.text.trim();
     
     // Parse JSON safely
     const cleanJsonText = textResult.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
