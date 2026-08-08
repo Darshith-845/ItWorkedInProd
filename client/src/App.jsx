@@ -109,7 +109,7 @@ const calculateReproductionConfidence = ({ production, expected, observedText })
 export default function App() {
   const [step, setStep] = useState(0); // 0: Capture, 1: Analyze, 2: Reconstruct, 3: Reproduce, 4: Verify/Fix
   const [mode, setMode] = useState('demo'); // 'real' or 'demo'
-  const [agentStatus, setAgentStatus] = useState('checking'); // 'offline', 'online', 'checking'
+  const [agentStatus, setAgentStatus] = useState('offline'); // 'offline', 'online', 'checking'
   const [scenarios, setScenarios] = useState([]);
   const [selectedScenarioId, setSelectedScenarioId] = useState('missing-config');
   const [evidenceText, setEvidenceText] = useState(DEMO_ERRORS['missing-config']);
@@ -146,8 +146,8 @@ export default function App() {
       })
       .catch(err => console.error('Failed to load scenarios:', err));
 
-    // Check Local Agent status
-    checkAgentStatus();
+    // The Local Agent belongs to the developer's machine. Do not probe a
+    // browser's localhost until the user explicitly asks to retry/connect.
   }, []);
 
   const checkAgentStatus = () => {

@@ -7,8 +7,7 @@ zerops:
     build:
       base: nodejs@20
       buildCommands:
-        - npm run install:server
-        - npm run install:client
+        - npm install
         - npm run build
       deployFiles:
         - server/
@@ -21,3 +20,7 @@ zerops:
         - port: 3001
           httpSupport: true
       start: npm start
+      healthCheck:
+        httpGet:
+          port: 3001
+          path: /health

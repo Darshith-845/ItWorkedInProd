@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "install:server": "cd server && npm install",
-    "install:client": "cd client && npm install",
+    "postinstall": "npm run install:server && npm run install:client",
+    "install:server": "npm --prefix server ci",
+    "install:client": "npm --prefix client ci",
     "install:agent": "cd local-agent && npm install",
     "install:all": "npm run install:server && npm run install:client && npm run install:agent",
     "build": "cd client && npm run build",

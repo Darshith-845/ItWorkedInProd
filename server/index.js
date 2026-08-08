@@ -10,6 +10,12 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// Deployment health check: intentionally independent of Gemini, Docker, and
+// the Local Agent so it only reports whether this web service is alive.
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'it-worked-in-prod' });
+});
+
 // API Routes
 app.use('/api', apiRouter);
 
