@@ -49,6 +49,12 @@ app.get('/health', (req, res) => {
 app.post('/reproduce', async (req, res) => {
   const { scenario_id } = req.body;
 
+  console.log('[reproduce] request received');
+  console.log(`[reproduce] scenario ID: ${scenario_id || '(missing)'}`);
+  res.once('finish', () => {
+    console.log(`[reproduce] response sent successfully (HTTP ${res.statusCode})`);
+  });
+
   if (!scenario_id) {
     return res.status(400).json({ error: 'scenario_id is required' });
   }
@@ -90,13 +96,18 @@ app.post('/reproduce', async (req, res) => {
 
     console.log(`=== Reproduction finished for ${scenario_id} ===\n`);
 
-    res.json({
+    const result = {
       success: true,
       trigger_output: triggerResult.stdout,
       trigger_error: triggerResult.stderr,
       trigger_success: triggerResult.success,
       container_logs: logsResult.stdout || logsResult.stderr || ''
-    });
+    };
+
+    console.log('[reproduce] reproduction completed');
+    console.log('[reproduce] result object before sending:', result);
+    console.log('[reproduce] HTTP status being sent: 200');
+    res.status(200).json(result);
 
   } catch (err) {
     console.error('Reproduction pipeline crashed:', err);
