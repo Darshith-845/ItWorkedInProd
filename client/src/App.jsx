@@ -25,6 +25,87 @@ Error: connect ECONNREFUSED 10.0.1.5:6379
     at /app/server.js:35:12`
 };
 
+const CONFIDENCE_WEIGHTS = {
+  httpStatus: 25,
+  errorSignature: 30,
+  serviceDependency: 20,
+  endpoint: 10,
+  errorMessage: 10,
+  stackSignature: 5
+};
+
+const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9/_-]+/g, ' ').trim();
+
+const extractHttpStatus = (text) => {
+  const match = String(text).match(/(?:http\s*(?:status|code)?|statuscode)\s*[:=]?\s*(\d{3})|"(?:http_?)?status"\s*:\s*(\d{3})/i);
+  return match ? (match[1] || match[2]) : null;
+};
+
+const extractEndpoint = (text) => {
+  const match = String(text).match(/\b(GET|POST|PUT|PATCH|DELETE)\s+(\/[^\s"']+)/i)
+    || String(text).match(/method\s*[=:]\s*(GET|POST|PUT|PATCH|DELETE).*?path\s*[=:]\s*(\/[^\s"'}]+)/i);
+  return match ? `${match[1].toUpperCase()} ${match[2].replace(/[),.]+$/, '')}` : null;
+};
+
+const extractErrorSignature = (text) => {
+  const source = String(text).toUpperCase();
+  // Prefer the observed low-level connection failure over a scenario script's
+  // friendly summary or fallback response code.
+  if (source.includes('EAI_AGAIN') || source.includes('ENOTFOUND')) return 'DEPENDENCY_RESOLUTION_FAILURE';
+  if (source.includes('CONNECTION IS CLOSED')) return 'CONNECTION_CLOSED';
+  if (source.includes('ERR_CONFIG_MISSING')) return 'ERR_CONFIG_MISSING';
+  if (/\b42703\b/.test(source)) return '42703';
+  if (source.includes('ECONNREFUSED') || source.includes('CONNECTION REFUSED')) return 'ECONNREFUSED';
+  if (source.includes('DATABASE_URL') && source.includes('NOT DEFINED')) return 'ERR_CONFIG_MISSING';
+  if (source.includes('COLUMN') && source.includes('DOES NOT EXIST')) return '42703';
+  return null;
+};
+
+const messageSimilarity = (production, local) => {
+  const ignored = new Set(['the', 'a', 'an', 'is', 'failed', 'error', 'internal', 'to', 'connect']);
+  const productionTokens = new Set(normalize(production).split(' ').filter(token => token.length > 2 && !ignored.has(token)));
+  const localTokens = new Set(normalize(local).split(' ').filter(Boolean));
+  if (!productionTokens.size || !localTokens.size) return null;
+  const overlap = [...productionTokens].filter(token => localTokens.has(token)).length;
+  return overlap / productionTokens.size;
+};
+
+const calculateReproductionConfidence = ({ production, expected, observedText }) => {
+  const productionDependency = production.dependency?.service || production.environment?.database || null;
+  const localStatus = extractHttpStatus(observedText);
+  const localEndpoint = extractEndpoint(observedText);
+  const localSignature = extractErrorSignature(observedText);
+  const localService = /checkout-api/i.test(observedText) ? 'checkout-api' : null;
+  const localDependency = /\bredis\b/i.test(observedText) ? 'redis' : /\bpostgres(?:ql)?\b|\bdatabase\b/i.test(observedText) ? 'postgres' : null;
+  const expectedSignature = expected.error_code || extractErrorSignature(`${production.error_code} ${production.error_message}`);
+  const expectedMessage = expected.error_message_contains || production.error_message;
+  const addSignal = (name, weight, productionValue, localValue, matched) => ({
+    name,
+    weight,
+    production: productionValue || 'Unavailable',
+    local: localValue || 'Unavailable',
+    available: Boolean(productionValue && localValue),
+    matched: Boolean(productionValue && localValue && matched),
+    points: productionValue && localValue && matched ? weight : 0
+  });
+
+  const signals = [
+    addSignal('HTTP status', CONFIDENCE_WEIGHTS.httpStatus, production.http_status && String(production.http_status), localStatus, String(production.http_status) === localStatus),
+    addSignal('Error signature', CONFIDENCE_WEIGHTS.errorSignature, expectedSignature, localSignature, expectedSignature === localSignature),
+    addSignal('Service / dependency', CONFIDENCE_WEIGHTS.serviceDependency, productionDependency || production.service, productionDependency ? localDependency : localService, normalize(productionDependency || production.service) === normalize(productionDependency ? localDependency : localService)),
+    addSignal('Endpoint', CONFIDENCE_WEIGHTS.endpoint, production.endpoint, localEndpoint, normalize(production.endpoint) === normalize(localEndpoint)),
+    addSignal('Error message', CONFIDENCE_WEIGHTS.errorMessage, expectedMessage, observedText, (messageSimilarity(expectedMessage, observedText) || 0) >= 0.6),
+    addSignal('Stack signature', CONFIDENCE_WEIGHTS.stackSignature, production.stack_trace, /\/app\/server\.js/i.test(observedText) ? '/app/server.js' : null, /\/app\/server\.js/i.test(production.stack_trace || '') && /\/app\/server\.js/i.test(observedText))
+  ];
+  const score = signals.reduce((total, signal) => total + signal.points, 0);
+  const matched = signals.filter(signal => signal.matched).length;
+  const available = signals.filter(signal => signal.available).length;
+  const confidenceLabel = score >= 90 ? 'EXACT / HIGH CONFIDENCE' : score >= 75 ? 'HIGH / STRONG REPRODUCTION' : score >= 50 ? 'PARTIAL / BEHAVIORAL REPRODUCTION' : 'MISMATCH';
+  const verdict = score >= 90 ? 'REPRODUCTION_VERIFIED' : score >= 50 ? 'REPRODUCTION_PARTIAL' : 'REPRODUCTION_MISMATCH';
+
+  return { score, confidenceLabel, verdict, signals, summary: `${matched} of ${available} available production signals reproduced.` };
+};
+
 export default function App() {
   const [step, setStep] = useState(0); // 0: Capture, 1: Analyze, 2: Reconstruct, 3: Reproduce, 4: Verify/Fix
   const [mode, setMode] = useState('demo'); // 'real' or 'demo'
@@ -40,6 +121,7 @@ export default function App() {
   const [terminalLogs, setTerminalLogs] = useState([]);
   const [isSimulating, setIsSimulating] = useState(false);
   const [reproduceResponse, setReproduceResponse] = useState(null);
+  const [reproductionConfidence, setReproductionConfidence] = useState(null);
   
   const terminalEndRef = useRef(null);
 
@@ -150,6 +232,7 @@ export default function App() {
     setIsSimulating(true);
     setSimActiveStep(0);
     setTerminalLogs([]);
+    setReproductionConfidence(null);
 
     const logLines = [];
     const addLog = (text) => {
@@ -263,10 +346,16 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
         return JSON.stringify(value);
       };
       const triggerOutput = asText(result?.trigger_output || result?.stdout);
+      const triggerError = asText(result?.trigger_error);
       const containerLogs = asText(result?.container_logs || result?.stderr);
       const agentError = asText(result?.error || result?.message || result?.details);
-      const observedOutput = [triggerOutput, containerLogs].join('\n');
+      const observedOutput = [triggerOutput, triggerError, containerLogs].join('\n');
       const expected = analysisResult.reproduction_spec.expected_result || {};
+      const confidence = calculateReproductionConfidence({
+        production: analysisResult.production_error,
+        expected,
+        observedText: observedOutput
+      });
       console.log(`${tracePrefix} expected_result`, expected);
       console.log(`${tracePrefix} observed result`, {
         responseOk,
@@ -279,7 +368,7 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
 
       currentOperation = 'matching expected failure signature';
       const expectedStatus = expected.http_status != null && new RegExp(`HTTP (?:Status|status)[:\\s]+${expected.http_status}|"http_status"\\s*:\\s*${expected.http_status}`).test(observedOutput);
-      const expectedCode = !expected.error_code || observedOutput.includes(expected.error_code);
+      const expectedCode = !expected.error_code || extractErrorSignature(observedOutput) === expected.error_code;
       const expectedMessage = !expected.error_message_contains || observedOutput.includes(expected.error_message_contains);
 
       let outcome;
@@ -303,9 +392,11 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
         expectedCode,
         expectedMessage
       });
+      console.log(`${tracePrefix} reproduction confidence`, confidence);
 
       currentOperation = 'committing reproduction result to React state';
-      setReproduceResponse({ ...result, container_logs: containerLogs, trigger_output: triggerOutput });
+      setReproduceResponse({ ...result, container_logs: containerLogs, trigger_output: triggerOutput, trigger_error: triggerError });
+      setReproductionConfidence(confidence);
       setSimActiveStep(6);
       addLog("Trigger completed. Capturing execution reports...");
       addLog("Logs collected. Cleaning up container environments...");
@@ -325,8 +416,9 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
           setStep(4);
         }, 1000);
       } else {
-        addLog(`\n[${outcome.status}] ${outcome.message}`);
-        alert(`${outcome.status}: ${outcome.message}`);
+        const confidenceMessage = `${confidence.confidenceLabel} (${confidence.score}%): ${confidence.summary}`;
+        addLog(`\n[${outcome.status}] ${outcome.message} ${confidenceMessage}`);
+        alert(`${outcome.status}: ${outcome.message}\n${confidenceMessage}`);
       }
 
     } catch (err) {
@@ -634,10 +726,26 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
                 </p>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <span className="match-percentage-badge">98%</span>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>MATCH CONFIDENCE</div>
+                <span className="match-percentage-badge">{reproductionConfidence?.score ?? 0}%</span>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>REPRODUCTION MATCH</div>
+                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  {reproductionConfidence?.confidenceLabel || 'UNAVAILABLE'}
+                </div>
               </div>
             </div>
+
+            {reproductionConfidence && (
+              <div style={{ color: 'var(--text-secondary)', fontSize: '12px', margin: '-16px 0 20px' }}>
+                <div style={{ marginBottom: '6px' }}>{reproductionConfidence.summary}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                  {reproductionConfidence.signals.map(signal => (
+                    <span key={signal.name} style={{ color: signal.matched ? 'var(--success-green)' : 'var(--text-muted)' }}>
+                      {signal.matched ? '✓' : signal.available ? '△' : '—'} {signal.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Split Screen Log Comparison */}
             <div className="comparison-grid">

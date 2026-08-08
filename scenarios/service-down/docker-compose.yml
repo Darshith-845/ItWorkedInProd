@@ -4,9 +4,14 @@
 # The checkout-api starts and accepts requests, but when it tries
 # to connect to Redis to fetch cart data, the connection is refused.
 #
-# NOTE: Redis service is intentionally NOT included.
+# A named placeholder lets Docker DNS resolve "redis". It deliberately runs
+# no Redis process, so TCP connections to redis:6379 are genuinely refused.
 
 services:
+  redis:
+    image: alpine:3.20
+    command: ["sh", "-c", "exec sleep infinity"]
+
   checkout-api:
     build:
       context: ./app
@@ -17,5 +22,5 @@ services:
       NODE_ENV: production
       REDIS_HOST: redis
       REDIS_PORT: 6379
-    # NOTE: No Redis service defined — this is intentional.
-    # The app will try to connect to 'redis:6379' and get ECONNREFUSED.
+    # Docker resolves redis to the placeholder container, which has no
+    # listener on 6379. The app therefore receives ECONNREFUSED.

@@ -15,6 +15,14 @@ const redis = new Redis({
   lazyConnect: true,
 });
 
+// ioredis may reject a request after closing the connection, even though its
+// error event contains the underlying TCP failure. Keep that genuine socket
+// error so the reproduction reports what actually happened on the network.
+let lastRedisConnectionError = null;
+redis.on('error', (err) => {
+  lastRedisConnectionError = err;
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'checkout-api' });
 });
@@ -42,19 +50,20 @@ app.post('/checkout', async (req, res) => {
       cart: JSON.parse(cartData),
     });
   } catch (err) {
+    const observedError = lastRedisConnectionError || err;
     console.error(JSON.stringify({
       timestamp: new Date().toISOString(),
       level: 'ERROR',
       service: 'checkout-api',
       endpoint: 'POST /checkout',
       error: {
-        message: err.message,
-        code: err.code,
-        errno: err.errno,
-        syscall: err.syscall,
-        address: err.address,
-        port: err.port,
-        stack: err.stack,
+        message: observedError.message,
+        code: observedError.code,
+        errno: observedError.errno,
+        syscall: observedError.syscall,
+        address: observedError.address,
+        port: observedError.port,
+        stack: observedError.stack,
       },
       request: {
         method: req.method,
@@ -70,8 +79,8 @@ app.post('/checkout', async (req, res) => {
 
     res.status(500).json({
       error: 'Internal Server Error',
-      message: `Redis connection failed: ${err.message}`,
-      code: err.code || 'ECONNREFUSED',
+      message: `Redis connection failed: ${observedError.message}`,
+      code: observedError.code || 'REDIS_CONNECTION_ERROR',
       timestamp: new Date().toISOString(),
       service: 'checkout-api',
       endpoint: 'POST /checkout',
