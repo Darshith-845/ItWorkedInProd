@@ -1,129 +1,359 @@
-# IT WORKED IN PROD — "Reproduce production bugs locally with one click"
+# IT WORKED IN PROD
 
-**IT WORKED IN PROD** is a developer-facing tool designed to reconstruct the conditions behind a production failure and recreate the exact same error signature locally inside a controlled Docker sandbox.
+> **Reproduce production bugs locally with one click.**
 
-Instead of generic AI chat or simple log parsers, this tool focuses on **environmental reconstruction**. It maps production variables, schema revisions, and dependent service configurations, and sets up a matching local replica to prove the reproduction.
+[🚀 Live Demo](https://app-2c53-3001.prg1.zerops.app/) · [💻 Source Code](https://github.com/Darshith-845/ItWorkedInProd) · [🎥 Demo Video](YOUR_VIDEO_URL)
 
-Built for **The Zerops Challenge**.
+**IT WORKED IN PROD** turns a production failure into a reproducible local incident.
+
+Paste a production error, reconstruct the failure scenario, run it inside an isolated Docker sandbox, and compare the reproduced failure against the original production evidence.
+
+Instead of asking:
+
+> *"What went wrong?"*
+
+the goal is:
+
+> **"Can I reproduce it?"**
 
 ---
 
-## ⚡ The Architecture
+## How It Works
 
-The web application runs on **Zerops**, separating the platform backend from the developer's local docker daemon. The **Local Agent** acts as a secure local broker to orchestration tasks.
-
+```text
+Production Error
+       │
+       ▼
+   ┌─────────┐
+   │ Analyze │
+   └────┬────┘
+        │
+        ▼
+ ┌─────────────┐
+ │ Reconstruct │
+ └──────┬──────┘
+        │
+        ▼
+ ┌────────────┐
+ │ Reproduce  │
+ │   Docker   │
+ │   Sandbox  │
+ └─────┬──────┘
+       │
+       ▼
+ ┌──────────────┐
+ │ Verify & Fix │
+ └──────────────┘
 ```
+
+The system is split into two parts:
+
+* **Zerops-hosted web application**
+  React frontend + Express backend for incident analysis, reconstruction, and verification.
+
+* **Local reproduction agent**
+  A Node.js agent running on the developer's machine that controls Docker Compose, executes the reproduction scenario, and captures the resulting failure.
+
+This keeps the web application publicly accessible while allowing the reproduction environment to run directly against the developer's Docker engine.
+
+---
+
+## Architecture
+
+![IT WORKED IN PROD Architecture](docs/architecture.png)
+
+### Cloud → Local
+
+```text
                          ZEROPS
                            │
                   ┌────────▼────────┐
-                  │ Web Application  │
-                  │  React frontend  │
-                  │  Express API     │
-                  │  AI Analysis     │
-                  │  Scenario Engine │
-                  └────────┬─────────┘
+                  │     Web App     │
+                  │                 │
+                  │ React + Express │
+                  │ Error Analysis  │
+                  │ Reconstruction  │
+                  │ Verification    │
+                  └────────┬────────┘
                            │
-                    Reproduction Spec
-                           │
-                           ▼
-                  ┌──────────────────┐
-                  │ Local Agent      │
-                  │ localhost:4317   │
-                  └────────┬─────────┘
+                    Reproduction
+                       Blueprint
                            │
                            ▼
-                  ┌──────────────────┐
-                  │ Docker Engine    │
-                  └────────┬─────────┘
-                           │
-                 ┌─────────┼─────────┐
-                 ▼         ▼         ▼
-                App        DB      Redis
-                 └─────────┼─────────┘
-                           ▼
-                    Reproduced Error
-                           │
-                           ▼
-                    Evidence → UI
+                ┌────────────────────┐
+                │   LOCAL MACHINE    │
+                │                    │
+                │    Local Agent     │
+                │         │          │
+                │         ▼          │
+                │   Docker Compose   │
+                │                    │
+                │   ┌────┬─────┬───┐ │
+                │   │App │ DB  │Redis│
+                │   └────┴─────┴───┘ │
+                │         │          │
+                │         ▼          │
+                │  Reproduced Error  │
+                └────────────────────┘
 ```
 
----
-
-## 🛠️ Technology Stack
-
-- **Frontend:** React + Vite (Vanilla CSS, no Tailwind for clean styles)
-- **Backend:** Express.js
-- **Local Agent:** Standalone Node.js server (runs locally on port `4317`)
-- **Containerization:** Docker & Docker Compose
-- **AI Integration:** Google Gemini API (via `@google/generative-ai`)
-- **Deployment Platform:** Zerops (Native Node.js Service configuration)
+Zerops hosts the application and analysis layer. The Local Agent executes the actual Docker-based reproduction locally.
 
 ---
 
-## 📂 Core reproduction Presets
+## Reproduction Scenarios
 
-We prioritize 3 extremely reliable, deterministic incident scenarios:
+The current MVP supports three deterministic production-style failures:
 
-1. **Missing Configuration**
-   - *Error:* `DATABASE_URL is not defined`
-   - *Reproduction:* Sandbox starts the application container with `DATABASE_URL` unset, triggers the endpoint, and captures the config missing error.
-2. **Database Schema Mismatch**
-   - *Error:* `column "subscription" does not exist`
-   - *Reproduction:* Sandbox spins up Postgres with a `v16` schema (missing subscription) while the application queries for v17 subscription status, verifying schema differences.
-3. **Service Dependency Failure**
-   - *Error:* `ECONNREFUSED` connecting to Redis
-   - *Reproduction:* Sandbox starts the application container while leaving the dependent Redis container shut down, recreating the topology failure.
+| Scenario                       | Reproduction                                            |
+| ------------------------------ | ------------------------------------------------------- |
+| **Missing configuration**      | Runs the application without `DATABASE_URL`             |
+| **Database schema mismatch**   | Runs the application against an older PostgreSQL schema |
+| **Service dependency failure** | Reproduces an unavailable Redis dependency              |
+
+Each scenario runs as an actual containerized environment and produces real runtime output.
 
 ---
 
-## ⚙️ Quick Start
+## Verification
 
-### 1. Prerequisites
-- **Node.js** (v20+)
-- **Docker** and **Docker Compose** installed and running on your local machine
+The reproduced failure is compared against the original production evidence using multiple signals:
 
-### 2. Local Setup
-Clone the repository and install all project dependencies:
-```bash
-# Install root, backend server, and React client dependencies
-npm run install:all
+* HTTP status
+* Error signature
+* Service / dependency
+* Endpoint
+* Error message
+* Stack signature
+
+The result includes a **reproduction confidence score** and the signals that matched.
+
+```text
+Production Evidence
+        │
+        ├── HTTP Status
+        ├── Error Signature
+        ├── Service / Dependency
+        ├── Endpoint
+        ├── Error Message
+        └── Stack Signature
+                │
+                ▼
+            Compare
+                │
+                ▼
+      Reproduction Confidence
+                │
+                ▼
+        Matched Evidence
 ```
 
-### 3. Start the Local Agent
-The Local Agent manages the Docker lifecycle on your machine:
+The goal is not simply to detect a similar error, but to provide evidence that the local failure corresponds to the production incident.
+
+---
+
+## Screenshots
+
+### Analyze
+
+![Analyze](docs/screenshots/analyze.png)
+
+### Reconstruct
+
+![Reconstruct](docs/screenshots/reconstruct.png)
+
+### Reproduce
+
+![Reproduce](docs/screenshots/reproduce.png)
+
+### Verify
+
+![Verify](docs/screenshots/verify.png)
+
+---
+
+## Tech Stack
+
+* **Frontend:** React, Vite
+* **Backend:** Node.js, Express
+* **AI:** Gemini
+* **Reproduction:** Docker, Docker Compose
+* **Deployment:** Zerops
+
+---
+
+## Running Locally
+
+### Requirements
+
+* Node.js 20+
+* Docker
+* Docker Compose
+
+### Setup
+
 ```bash
-# Start Local Agent on http://localhost:4317
+git clone YOUR_GITHUB_URL
+cd IT-WORKED-IN-PROD
+
+npm install
+npm run install:agent
+npm run build
+```
+
+Start the web application:
+
+```bash
+npm start
+```
+
+Start the local reproduction agent:
+
+```bash
 npm run agent
 ```
 
-### 4. Run the Web App Backend (API & Static Frontend)
-```bash
-# Start Web Backend on http://localhost:3001
-npm start
+The web application runs on:
+
+```text
+http://localhost:3001
 ```
-Open your browser and navigate to `http://localhost:3001` to view the tool.
+
+The Local Agent runs on:
+
+```text
+http://localhost:4317
+```
+
+### Environment Variables
+
+If using Gemini analysis, configure:
+
+```env
+GEMINI_API_KEY=your_api_key
+```
+
+Do not commit API keys or other secrets to the repository.
 
 ---
 
-## ☁️ Zerops Deployment Guide
+## Why Zerops?
 
-To deploy the application to Zerops:
+Zerops provides the public deployment environment for the application.
 
-1. Connect your GitHub repository containing this project to your **Zerops account**.
-2. Create a new project and add a **Node.js service** named `app`.
-3. In the environment variables configuration on Zerops, optionally specify your API keys:
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key_here
-   ```
-4. Trigger a build. Zerops will read the `zerops.yml` file in the root directory to automatically build the client React application and deploy the Express server.
+The architecture deliberately separates the hosted application from local infrastructure execution:
+
+```text
+                    ZEROPS
+                       │
+                       ▼
+              ┌─────────────────┐
+              │   Web Application│
+              │                 │
+              │ React Frontend  │
+              │ Express API     │
+              │ Analysis        │
+              │ Reconstruction  │
+              │ Verification    │
+              └────────┬────────┘
+                       │
+                Reproduction
+                   Blueprint
+                       │
+                       ▼
+                LOCAL MACHINE
+                       │
+                       ▼
+                 Local Agent
+                       │
+                       ▼
+                 Docker Sandbox
+```
+
+This allows the application to remain publicly accessible while the reproduction environment retains direct access to Docker on the developer's machine.
+
+The Zerops deployment is defined through `zerops.yml`.
 
 ---
 
-## 🧭 The Workflow
+## Project Structure
 
-1. **CAPTURE:** Paste a production error stacktrace or click one of the preset presets.
-2. **ANALYZE:** The analysis engine classifies the incident category and isolates the affected microservice.
-3. **RECONSTRUCT:** View the generated `reproduction_spec.json` defining the container configurations.
-4. **REPRODUCE:** The web frontend calls the Local Agent to launch the Docker sandbox and trigger the target endpoint.
-5. **VERIFY:** View side-by-side logs of Production vs. Local Sandbox with verified match confidence.
-6. **FIX:** Get actionable advice and the exact command to patch the bug.
+```text
+IT-WORKED-IN-PROD/
+│
+├── client/              # React frontend
+├── local-agent/         # Local Docker orchestration agent
+├── scenarios/           # Reproduction environments
+│   ├── missing-config/
+│   ├── db-schema/
+│   └── service-down/
+│
+├── api.js               # Backend API
+├── ai.js                # Incident analysis
+├── index.js             # Express server
+├── zerops.yml           # Zerops deployment configuration
+├── PROJECT_CONTEXT.md
+├── package.json
+└── README.md
+```
+
+---
+
+## Limitations
+
+The current MVP focuses on three deterministic incident scenarios:
+
+1. Missing configuration
+2. Database schema mismatch
+3. Service dependency failure
+
+It is **not yet a general-purpose production environment reconstruction system**.
+
+The current implementation demonstrates the complete workflow:
+
+```text
+Production Evidence
+        ↓
+Incident Analysis
+        ↓
+Reproduction Blueprint
+        ↓
+Docker Reproduction
+        ↓
+Evidence Comparison
+        ↓
+Verified Failure
+```
+
+---
+
+## Future Work
+
+* More infrastructure and incident scenarios
+* Automatic environment reconstruction
+* Kubernetes and cloud dependency reproduction
+* CI/CD integration
+* Incident history and regression testing
+
+---
+
+## Built for the Zerops Challenge
+
+Production failures are difficult to debug because the environment in which they occurred may no longer exist.
+
+**IT WORKED IN PROD** explores a simple alternative:
+
+```text
+Don't just analyze the failure.
+
+Recreate it.
+Run it.
+Compare it.
+Prove it.
+```
+
+---
+
+## License
+
+This project was built as a hackathon project for **The Zerops Challenge**.
