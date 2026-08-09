@@ -79,15 +79,19 @@ const calculateReproductionConfidence = ({ production, expected, observedText })
   const localDependency = /\bredis\b/i.test(observedText) ? 'redis' : /\bpostgres(?:ql)?\b|\bdatabase\b/i.test(observedText) ? 'postgres' : null;
   const expectedSignature = expected.error_code || extractErrorSignature(`${production.error_code} ${production.error_message}`);
   const expectedMessage = expected.error_message_contains || production.error_message;
-  const addSignal = (name, weight, productionValue, localValue, matched) => ({
-    name,
-    weight,
-    production: productionValue || 'Unavailable',
-    local: localValue || 'Unavailable',
-    available: Boolean(productionValue && localValue),
-    matched: Boolean(productionValue && localValue && matched),
-    points: productionValue && localValue && matched ? weight : 0
-  });
+  const addSignal = (name, weight, productionValue, localValue, matched) => {
+    const scope = name === 'Stack signature' ? Boolean(productionValue && localValue) : true;
+    return {
+      name,
+      weight,
+      production: productionValue || 'Unavailable',
+      local: localValue || 'Unavailable',
+      available: Boolean(productionValue && localValue),
+      applicable: scope,
+      matched: Boolean(scope && productionValue && localValue && matched),
+      points: scope && productionValue && localValue && matched ? weight : 0
+    };
+  };
 
   const signals = [
     addSignal('HTTP status', CONFIDENCE_WEIGHTS.httpStatus, production.http_status && String(production.http_status), localStatus, String(production.http_status) === localStatus),
@@ -99,11 +103,66 @@ const calculateReproductionConfidence = ({ production, expected, observedText })
   ];
   const score = signals.reduce((total, signal) => total + signal.points, 0);
   const matched = signals.filter(signal => signal.matched).length;
-  const available = signals.filter(signal => signal.available).length;
+  const applicableCount = signals.filter(signal => signal.applicable !== false).length;
   const confidenceLabel = score >= 90 ? 'EXACT / HIGH CONFIDENCE' : score >= 75 ? 'HIGH / STRONG REPRODUCTION' : score >= 50 ? 'PARTIAL / BEHAVIORAL REPRODUCTION' : 'MISMATCH';
   const verdict = score >= 90 ? 'REPRODUCTION_VERIFIED' : score >= 50 ? 'REPRODUCTION_PARTIAL' : 'REPRODUCTION_MISMATCH';
 
-  return { score, confidenceLabel, verdict, signals, summary: `${matched} of ${available} available production signals reproduced.` };
+  return { score, confidenceLabel, verdict, signals, summary: `${matched} of ${applicableCount} signals reproduced.` };
+};
+
+const StepProgress = ({ step }) => (
+  <div className="stepper">
+    <div className={`step-item ${step >= 1 ? (step > 1 ? 'completed' : 'active') : ''}`}>
+      <div className="step-circle">1</div>
+      <span className="step-label">Analyze</span>
+    </div>
+    <div className={`step-item ${step >= 2 ? (step > 2 ? 'completed' : 'active') : ''}`}>
+      <div className="step-circle">2</div>
+      <span className="step-label">Reconstruct</span>
+    </div>
+    <div className={`step-item ${step >= 3 ? (step > 3 ? 'completed' : 'active') : ''}`}>
+      <div className="step-circle">3</div>
+      <span className="step-label">Reproduce</span>
+    </div>
+    <div className={`step-item ${step >= 4 ? 'completed' : ''}`}>
+      <div className="step-circle">4</div>
+      <span className="step-label">Verify & Fix</span>
+    </div>
+  </div>
+);
+
+const AppHeader = ({ agentStatus, mode, checkAgentStatus }) => {
+  const isDemoMode = mode === 'demo';
+  const badgeLabel = isDemoMode ? 'Demo Mode' : `Local Agent: ${agentStatus.toUpperCase()}`;
+  const badgeTitle = isDemoMode ? 'Local Docker agent disabled in hosted demo' : undefined;
+  const showRetry = !isDemoMode && agentStatus === 'offline';
+
+  return (
+    <header className="app-header">
+      <div className="container header-container">
+        <div className="logo">
+          <span className="logo-icon">🗲</span> IT WORKED IN PROD
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div className="agent-status-badge" title={badgeTitle}>
+            <span className={`status-dot ${agentStatus === 'online' ? 'online' : ''}`}></span>
+            <span>{badgeLabel}</span>
+            {showRetry && (
+              <button onClick={checkAgentStatus} className="btn" style={{ padding: '2px 8px', fontSize: '10px' }}>
+                Retry
+              </button>
+            )}
+          </div>
+
+          <div className="zerops-badge">
+            <span>Deployed on</span>
+            <strong>Zerops</strong>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
 };
 
 export default function App() {
@@ -443,58 +502,12 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
 
   return (
     <div className="app-layout">
-      {/* Header */}
-      <header className="app-header">
-        <div className="container header-container">
-          <div className="logo">
-            <span className="logo-icon">🗲</span>
-            IT WORKED IN PROD
-          </div>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {/* Mode selection toggle */}
-            <div className="agent-status-badge">
-              <span className={`status-dot ${agentStatus === 'online' ? 'online' : ''}`}></span>
-              <span>Local Agent: {agentStatus.toUpperCase()}</span>
-              {agentStatus === 'offline' && (
-                <button onClick={checkAgentStatus} className="btn" style={{ padding: '2px 8px', fontSize: '10px' }}>
-                  Retry
-                </button>
-              )}
-            </div>
-
-            <div className="zerops-badge">
-              <span>Deployed on</span>
-              <strong>Zerops</strong>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader agentStatus={agentStatus} mode={mode} checkAgentStatus={checkAgentStatus} />
 
       {/* Main Container */}
       <main className="app-main container">
         
-        {/* Stepper progress indicator */}
-        {step > 0 && (
-          <div className="stepper">
-            <div className={`step-item ${step >= 1 ? (step > 1 ? 'completed' : 'active') : ''}`}>
-              <div className="step-circle">1</div>
-              <span className="step-label">Analyze</span>
-            </div>
-            <div className={`step-item ${step >= 2 ? (step > 2 ? 'completed' : 'active') : ''}`}>
-              <div className="step-circle">2</div>
-              <span className="step-label">Reconstruct</span>
-            </div>
-            <div className={`step-item ${step >= 3 ? (step > 3 ? 'completed' : 'active') : ''}`}>
-              <div className="step-circle">3</div>
-              <span className="step-label">Reproduce</span>
-            </div>
-            <div className={`step-item ${step >= 4 ? 'completed' : ''}`}>
-              <div className="step-circle">4</div>
-              <span className="step-label">Verify & Fix</span>
-            </div>
-          </div>
-        )}
+        {step > 0 && <StepProgress step={step} />}
 
         {/* STEP 0: Capture View */}
         {step === 0 && (
@@ -738,11 +751,22 @@ checkout-api-1  | ${analysisResult.production_error.stack_trace}`
               <div style={{ color: 'var(--text-secondary)', fontSize: '12px', margin: '-16px 0 20px' }}>
                 <div style={{ marginBottom: '6px' }}>{reproductionConfidence.summary}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                  {reproductionConfidence.signals.map(signal => (
-                    <span key={signal.name} style={{ color: signal.matched ? 'var(--success-green)' : 'var(--text-muted)' }}>
-                      {signal.matched ? '✓' : signal.available ? '△' : '—'} {signal.name}
-                    </span>
-                  ))}
+                  {reproductionConfidence.signals.map(signal => {
+                    if (signal.applicable === false) {
+                      return (
+                        <span key={signal.name} style={{ color: 'var(--text-muted)' }}>
+                          <span style={{ fontWeight: 600 }}>N/A</span> {signal.name}
+                          <span style={{ marginLeft: '4px', opacity: 0.8 }}>(not applicable)</span>
+                        </span>
+                      );
+                    }
+
+                    return (
+                      <span key={signal.name} style={{ color: signal.matched ? 'var(--success-green)' : 'var(--text-muted)' }}>
+                        {signal.matched ? '✓' : signal.available ? '△' : '—'} {signal.name}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
