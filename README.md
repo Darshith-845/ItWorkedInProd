@@ -20,31 +20,7 @@ the goal is:
 
 ## How It Works
 
-```text
-Production Error
-       │
-       ▼
-   ┌─────────┐
-   │ Analyze │
-   └────┬────┘
-        │
-        ▼
- ┌─────────────┐
- │ Reconstruct │
- └──────┬──────┘
-        │
-        ▼
- ┌────────────┐
- │ Reproduce  │
- │   Docker   │
- │   Sandbox  │
- └─────┬──────┘
-       │
-       ▼
- ┌──────────────┐
- │ Verify & Fix │
- └──────────────┘
-```
+![How It Works](docs/how_it_works.png)
 
 The system is split into two parts:
 
@@ -61,41 +37,6 @@ This keeps the web application publicly accessible while allowing the reproducti
 ## Architecture
 
 ![IT WORKED IN PROD Architecture](docs/architecture.png)
-
-### Cloud → Local
-
-```text
-                         ZEROPS
-                           │
-                  ┌────────▼────────┐
-                  │     Web App     │
-                  │                 │
-                  │ React + Express │
-                  │ Error Analysis  │
-                  │ Reconstruction  │
-                  │ Verification    │
-                  └────────┬────────┘
-                           │
-                    Reproduction
-                       Blueprint
-                           │
-                           ▼
-                ┌────────────────────┐
-                │   LOCAL MACHINE    │
-                │                    │
-                │    Local Agent     │
-                │         │          │
-                │         ▼          │
-                │   Docker Compose   │
-                │                    │
-                │   ┌────┬─────┬───┐ │
-                │   │App │ DB  │Redis│
-                │   └────┴─────┴───┘ │
-                │         │          │
-                │         ▼          │
-                │  Reproduced Error  │
-                └────────────────────┘
-```
 
 Zerops hosts the application and analysis layer. The Local Agent executes the actual Docker-based reproduction locally.
 
@@ -128,25 +69,7 @@ The reproduced failure is compared against the original production evidence usin
 
 The result includes a **reproduction confidence score** and the signals that matched.
 
-```text
-Production Evidence
-        │
-        ├── HTTP Status
-        ├── Error Signature
-        ├── Service / Dependency
-        ├── Endpoint
-        ├── Error Message
-        └── Stack Signature
-                │
-                ▼
-            Compare
-                │
-                ▼
-      Reproduction Confidence
-                │
-                ▼
-        Matched Evidence
-```
+![Verification](docs/verification.png)
 
 The goal is not simply to detect a similar error, but to provide evidence that the local failure corresponds to the production incident.
 
@@ -196,7 +119,7 @@ The goal is not simply to detect a similar error, but to provide evidence that t
 ### Setup
 
 ```bash
-git clone YOUR_GITHUB_URL
+git clone https://github.com/Darshith-845/ItWorkedInProd.git
 cd IT-WORKED-IN-PROD
 
 npm install
@@ -236,7 +159,6 @@ If using Gemini analysis, configure:
 GEMINI_API_KEY=your_api_key
 ```
 
-Do not commit API keys or other secrets to the repository.
 
 ---
 
@@ -246,32 +168,7 @@ Zerops provides the public deployment environment for the application.
 
 The architecture deliberately separates the hosted application from local infrastructure execution:
 
-```text
-                    ZEROPS
-                       │
-                       ▼
-              ┌─────────────────┐
-              │   Web Application│
-              │                 │
-              │ React Frontend  │
-              │ Express API     │
-              │ Analysis        │
-              │ Reconstruction  │
-              │ Verification    │
-              └────────┬────────┘
-                       │
-                Reproduction
-                   Blueprint
-                       │
-                       ▼
-                LOCAL MACHINE
-                       │
-                       ▼
-                 Local Agent
-                       │
-                       ▼
-                 Docker Sandbox
-```
+See the [Architecture](#architecture) diagram above for how the cloud and local layers separate.
 
 This allows the application to remain publicly accessible while the reproduction environment retains direct access to Docker on the developer's machine.
 
@@ -314,20 +211,6 @@ It is **not yet a general-purpose production environment reconstruction system**
 
 The current implementation demonstrates the complete workflow:
 
-```text
-Production Evidence
-        ↓
-Incident Analysis
-        ↓
-Reproduction Blueprint
-        ↓
-Docker Reproduction
-        ↓
-Evidence Comparison
-        ↓
-Verified Failure
-```
-
 ---
 
 ## Future Work
@@ -360,3 +243,4 @@ Prove it.
 ## License
 
 This project was built as a hackathon project for **The Zerops Challenge**.
+But created Apache License when making the repo 
