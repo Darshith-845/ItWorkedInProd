@@ -154,6 +154,9 @@ The goal is not simply to detect a similar error, but to provide evidence that t
 
 ## Screenshots
 
+### Homepage
+![Homepage](docs/screenshots/homepage.png)
+
 ### Analyze
 
 ![Analyze](docs/screenshots/analyze.png)
