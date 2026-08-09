@@ -22,6 +22,8 @@ the goal is:
 
 ![How It Works](docs/how_it_works.png)
 
+> **Note:** The hosted demo runs in Demo Mode because the Docker reproduction agent runs locally on the developer's machine. Real Mode connects the web application to the Local Agent on `localhost:4317` to execute the Docker sandbox.
+
 The system is split into two parts:
 
 * **Zerops-hosted web application**
