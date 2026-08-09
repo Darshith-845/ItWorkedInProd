@@ -2,7 +2,7 @@
 
 > **Reproduce production bugs locally with one click.**
 
-[🚀 Live Demo](https://app-2c53-3001.prg1.zerops.app/) · [💻 Source Code](https://github.com/Darshith-845/ItWorkedInProd) · [🎥 Demo Video](https://youtu.be/qY2tWO_cmZ8)
+[🚀 Live Demo](https://app-2c53-3001.prg1.zerops.app/) · [🎥 Demo Video](https://youtu.be/qY2tWO_cmZ8)
 
 **IT WORKED IN PROD** turns a production failure into a reproducible local incident.
 
